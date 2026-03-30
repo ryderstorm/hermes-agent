@@ -584,27 +584,37 @@ def _try_nous() -> Tuple[Optional[OpenAI], Optional[str]]:
 
 
 def _read_main_model() -> str:
-    """Read the user's configured main model from config/env.
+    """Read the user's configured main model, matching CLI precedence.
 
-    Falls back through HERMES_MODEL → LLM_MODEL → config.yaml model.default
-    so the auxiliary client can use the same model as the main agent when no
-    dedicated auxiliary model is available.
+    Prefer an explicitly saved config.yaml model for normal Hermes sessions so
+    stale shell env vars do not override the active saved model. However, if the
+    user is explicitly routing the main runtime through an env-defined custom
+    endpoint (OPENAI_BASE_URL), the env model should win so the endpoint/model
+    pair stays aligned.
     """
-    from_env = os.getenv("OPENAI_MODEL") or os.getenv("HERMES_MODEL") or os.getenv("LLM_MODEL")
-    if from_env:
-        return from_env.strip()
+    explicit_endpoint_model = os.getenv("OPENAI_MODEL") or os.getenv("HERMES_MODEL")
+    if os.getenv("OPENAI_BASE_URL") and explicit_endpoint_model:
+        return explicit_endpoint_model.strip()
+
+    from_env = explicit_endpoint_model or os.getenv("LLM_MODEL")
+
     try:
-        from hermes_cli.config import load_config
-        cfg = load_config()
-        model_cfg = cfg.get("model", {})
-        if isinstance(model_cfg, str) and model_cfg.strip():
-            return model_cfg.strip()
-        if isinstance(model_cfg, dict):
-            default = model_cfg.get("default", "")
-            if isinstance(default, str) and default.strip():
-                return default.strip()
+        config_path = get_hermes_home() / "config.yaml"
+        if config_path.exists():
+            from hermes_cli.config import load_config
+            cfg = load_config()
+            model_cfg = cfg.get("model", {})
+            if isinstance(model_cfg, str) and model_cfg.strip():
+                return model_cfg.strip()
+            if isinstance(model_cfg, dict):
+                default = model_cfg.get("default", "")
+                if isinstance(default, str) and default.strip():
+                    return default.strip()
     except Exception:
         pass
+
+    if from_env:
+        return from_env.strip()
     return ""
 
 

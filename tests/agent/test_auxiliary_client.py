@@ -15,6 +15,7 @@ from agent.auxiliary_client import (
     resolve_provider_client,
     auxiliary_max_tokens_param,
     _read_codex_access_token,
+    _read_main_model,
     _get_auxiliary_provider,
     _resolve_forced_provider,
     _resolve_auto,
@@ -55,6 +56,33 @@ def codex_auth_dir(tmp_path, monkeypatch):
         lambda: "codex-test-token-abc123",
     )
     return codex_dir
+
+
+class TestReadMainModel:
+    def test_prefers_config_model_over_stale_env(self, tmp_path, monkeypatch):
+        hermes_home = tmp_path / "hermes_home"
+        hermes_home.mkdir()
+        (hermes_home / "config.yaml").write_text("model:\n  default: gpt-5.4\n", encoding="utf-8")
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv("LLM_MODEL", "anthropic/claude-opus-4.6")
+        monkeypatch.setenv("OPENAI_MODEL", "anthropic/claude-opus-4.6")
+
+        assert _read_main_model() == "gpt-5.4"
+
+    def test_prefers_config_over_stale_llm_model_even_with_openai_base_url(self, tmp_path, monkeypatch):
+        hermes_home = tmp_path / "hermes_home"
+        hermes_home.mkdir()
+        (hermes_home / "config.yaml").write_text(
+            "model:\n  default: gpt-5.4\n  provider: custom\n  base_url: https://api.openai.com/v1\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+        monkeypatch.setenv("LLM_MODEL", "anthropic/claude-opus-4.6")
+        monkeypatch.delenv("OPENAI_MODEL", raising=False)
+        monkeypatch.delenv("HERMES_MODEL", raising=False)
+
+        assert _read_main_model() == "gpt-5.4"
 
 
 class TestReadCodexAccessToken:
@@ -503,7 +531,7 @@ class TestGetTextAuxiliaryClient:
         assert mock_openai.call_args.kwargs["api_key"] == "no-key-required"
         assert mock_openai.call_args.kwargs["base_url"] == "http://localhost:2345/v1"
 
-    def test_custom_endpoint_uses_config_saved_base_url(self, monkeypatch):
+    def test_custom_endpoint_uses_config_saved_base_url(self, tmp_path, monkeypatch):
         config = {
             "model": {
                 "provider": "custom",
@@ -511,6 +539,13 @@ class TestGetTextAuxiliaryClient:
                 "default": "my-local-model",
             }
         }
+        hermes_home = tmp_path / "hermes_home"
+        hermes_home.mkdir()
+        (hermes_home / "config.yaml").write_text(
+            "model:\n  provider: custom\n  base_url: http://localhost:1234/v1\n  default: my-local-model\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
         monkeypatch.setenv("OPENAI_API_KEY", "lm-studio-key")
         monkeypatch.setattr("hermes_cli.config.load_config", lambda: config)
         monkeypatch.setattr("hermes_cli.runtime_provider.load_config", lambda: config)
@@ -528,6 +563,7 @@ class TestGetTextAuxiliaryClient:
 
     def test_codex_fallback_when_nothing_else(self, codex_auth_dir):
         with patch("agent.auxiliary_client._read_nous_auth", return_value=None), \
+             patch("agent.auxiliary_client._resolve_custom_runtime", return_value=(None, None)), \
              patch("agent.auxiliary_client.OpenAI") as mock_openai:
             client, model = get_text_auxiliary_client()
         assert model == "gpt-5.2-codex"
@@ -550,9 +586,11 @@ class TestGetTextAuxiliaryClient:
 class TestVisionClientFallback:
     """Vision client auto mode resolves known-good multimodal backends."""
 
-    def test_vision_returns_none_without_any_credentials(self):
+    def test_vision_returns_none_without_any_credentials(self, monkeypatch):
+        monkeypatch.setattr("hermes_cli.config.load_config", lambda: {})
         with (
             patch("agent.auxiliary_client._read_nous_auth", return_value=None),
+            patch("agent.auxiliary_client._resolve_custom_runtime", return_value=(None, None)),
             patch("agent.auxiliary_client._try_anthropic", return_value=(None, None)),
         ):
             client, model = get_vision_auxiliary_client()
@@ -741,7 +779,9 @@ class TestVisionClientFallback:
         monkeypatch.setenv("AUXILIARY_VISION_PROVIDER", "main")
         monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.setattr("hermes_cli.config.load_config", lambda: {})
         with patch("agent.auxiliary_client._read_nous_auth", return_value=None), \
+             patch("agent.auxiliary_client._resolve_custom_runtime", return_value=(None, None)), \
              patch("agent.auxiliary_client._read_codex_access_token", return_value=None), \
              patch("agent.auxiliary_client._resolve_api_key_provider", return_value=(None, None)):
             client, model = get_vision_auxiliary_client()
@@ -835,7 +875,7 @@ class TestResolveForcedProvider:
             client, model = _resolve_forced_provider("main")
         assert model == "my-local-model"
 
-    def test_forced_main_uses_config_saved_custom_endpoint(self, monkeypatch):
+    def test_forced_main_uses_config_saved_custom_endpoint(self, tmp_path, monkeypatch):
         config = {
             "model": {
                 "provider": "custom",
@@ -843,6 +883,13 @@ class TestResolveForcedProvider:
                 "default": "my-local-model",
             }
         }
+        hermes_home = tmp_path / "hermes_home"
+        hermes_home.mkdir()
+        (hermes_home / "config.yaml").write_text(
+            "model:\n  provider: custom\n  base_url: http://local:8080/v1\n  default: my-local-model\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
         monkeypatch.setenv("OPENAI_API_KEY", "local-key")
         monkeypatch.setattr("hermes_cli.config.load_config", lambda: config)
         monkeypatch.setattr("hermes_cli.runtime_provider.load_config", lambda: config)
