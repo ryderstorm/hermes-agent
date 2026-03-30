@@ -45,6 +45,21 @@ def _resolve_api_key(cfg: dict) -> str:
     return host_key or cfg.get("apiKey", "") or os.environ.get("HONCHO_API_KEY", "")
 
 
+def _validate_connection(hcfg) -> None:
+    """Force a real Honcho API path instead of only constructing the SDK client."""
+    from honcho_integration.client import get_honcho_client, reset_honcho_client
+    from honcho_integration.session import HonchoSessionManager
+
+    reset_honcho_client()
+    client = get_honcho_client(hcfg)
+    manager = HonchoSessionManager(
+        honcho=client,
+        config=hcfg,
+        context_tokens=hcfg.context_tokens,
+    )
+    manager.get_or_create(hcfg.resolve_session_name())
+
+
 def _prompt(label: str, default: str | None = None, secret: bool = False) -> str:
     suffix = f" [{default}]" if default else ""
     sys.stdout.write(f"  {label}{suffix}: ")
@@ -194,10 +209,9 @@ def cmd_setup(args) -> None:
     # Test connection
     print("  Testing connection... ", end="", flush=True)
     try:
-        from honcho_integration.client import HonchoClientConfig, get_honcho_client, reset_honcho_client
-        reset_honcho_client()
+        from honcho_integration.client import HonchoClientConfig
         hcfg = HonchoClientConfig.from_global_config()
-        get_honcho_client(hcfg)
+        _validate_connection(hcfg)
         print("OK")
     except Exception as e:
         print(f"FAILED\n  Error: {e}")
@@ -273,7 +287,7 @@ def cmd_status(args) -> None:
     if hcfg.enabled and (hcfg.api_key or hcfg.base_url):
         print("\n  Connection... ", end="", flush=True)
         try:
-            get_honcho_client(hcfg)
+            _validate_connection(hcfg)
             print("OK\n")
         except Exception as e:
             print(f"FAILED ({e})\n")
