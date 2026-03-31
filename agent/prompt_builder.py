@@ -158,7 +158,12 @@ MEMORY_GUIDANCE = (
 SESSION_SEARCH_GUIDANCE = (
     "When the user references something from a past conversation or you suspect "
     "relevant cross-session context exists, use session_search to recall it before "
-    "asking them to repeat themselves."
+    "asking them to repeat themselves. "
+    "For requests about prior sessions, all conversations, timelines, dates, timestamps, "
+    "counts, or conversation metrics, prefer session_search before answering. "
+    "Do not rely solely on continuity memory when making claims about historical coverage "
+    "or completeness; use continuity memory as a supplement or fallback when session_search "
+    "returns partial results."
 )
 
 SKILLS_GUIDANCE = (
