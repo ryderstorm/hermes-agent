@@ -174,6 +174,19 @@ With streaming enabled (the default), you'll see brief inline indicators as tool
 |----------|-------------|
 | `OPENAI_API_BASE_URL` | Hermes Agent's API URL (include `/v1`) |
 | `OPENAI_API_KEY` | Must be non-empty. Match your `API_SERVER_KEY`. |
+| `OPENWEBUI_API_KEY` | Optional separate Open WebUI REST API key used by Hermes cron jobs when `deliver="openwebui"`. Store it in Hermes' `~/.hermes/.env`, not in Open WebUI's container env. |
+
+## Cron delivery into Open WebUI chats
+
+If you want cron jobs to create **new Open WebUI chats** that are already waiting in the sidebar, configure `cron.openwebui` in `~/.hermes/config.yaml` and store `OPENWEBUI_API_KEY` in `~/.hermes/.env`.
+
+Run a smoke test before scheduling a real job:
+
+```bash
+hermes cron preflight
+```
+
+Then create a job with `deliver="openwebui"`. Hermes will keep the normal local markdown audit output and also create a new Open WebUI chat for each run.
 
 ## Troubleshooting
 

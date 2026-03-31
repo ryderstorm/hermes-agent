@@ -186,6 +186,7 @@ When scheduling jobs, you specify where the output goes:
 |--------|-------------|---------|
 | `"origin"` | Back to where the job was created | Default on messaging platforms |
 | `"local"` | Save to local files only (`~/.hermes/cron/output/`) | Default on CLI |
+| `"openwebui"` | Create a new Open WebUI chat via REST API | Uses `cron.openwebui.*` config |
 | `"telegram"` | Telegram home channel | Uses `TELEGRAM_HOME_CHANNEL` |
 | `"discord"` | Discord home channel | Uses `DISCORD_HOME_CHANNEL` |
 | `"telegram:123456"` | Specific Telegram chat by ID | Direct delivery |
@@ -227,6 +228,56 @@ Otherwise, report the issue.
 
 Failed jobs always deliver regardless of the `[SILENT]` marker — only successful runs can be silenced.
 
+### Open WebUI delivery
+
+`deliver="openwebui"` creates a **new chat per cron run**. Hermes keeps saving the usual local markdown audit output under `~/.hermes/cron/output/`, then also posts a user/assistant pair into Open WebUI so the result is waiting in the sidebar.
+
+Add this to `~/.hermes/config.yaml`:
+
+```yaml
+cron:
+  openwebui:
+    base_url: "https://open-webui.example.com"
+    api_key: "${OPENWEBUI_API_KEY}"
+    title_template: "{job_name} – {date}"
+    user_message_template: "Scheduled task result for {job_name} at {datetime}"
+    model_name: "hermes-agent"
+    timeout_seconds: 30
+```
+
+Store the API key in `~/.hermes/.env`:
+
+```bash
+OPENWEBUI_API_KEY=your-o...-key
+```
+
+Before scheduling a live job, run a smoke test:
+
+```bash
+hermes cron preflight
+```
+
+That command validates the configured `cron.openwebui` target by checking the Open WebUI version endpoint and performing an authenticated chat-list request. It does not create a chat.
+
+Available template fields for `title_template` and `user_message_template`:
+
+- `{date}` → `2026-03-31`
+- `{datetime}` → ISO timestamp for the run
+- `{job_id}`
+- `{job_name}`
+- `{schedule}` → the job's display schedule when available
+
+Example:
+
+```python
+cronjob(
+    action="create",
+    prompt="Summarize new production incidents since the last run and call out anything urgent.",
+    schedule="0 * * * *",
+    name="Hourly incident summary",
+    deliver="openwebui",
+)
+```
 ## Schedule formats
 
 The agent's final response is automatically delivered — you do **not** need to include `send_message` in the cron prompt for that same destination. If a cron run calls `send_message` to the exact target the scheduler will already deliver to, Hermes skips that duplicate send and tells the model to put the user-facing content in the final response instead. Use `send_message` only for additional or different targets.

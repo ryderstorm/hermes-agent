@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from cron.delivery import get_exact_delivery_target
 from cron.jobs import get_due_jobs, mark_job_run, save_job_output, advance_next_run
 
 # Sentinel: when a cron agent has nothing new to report, it can start its
@@ -128,13 +129,48 @@ def _resolve_delivery_target(job: dict) -> Optional[dict]:
     }
 
 
+def _build_gateway_delivery_content(job: dict, content: str) -> str:
+    """Prepare content for gateway-style deliveries.
+
+    Exact delivery targets like Open WebUI own their own payload shape. Gateway
+    deliveries keep the existing optional wrapping behavior.
+    """
+    wrap_response = True
+    try:
+        user_cfg = load_config()
+        wrap_response = user_cfg.get("cron", {}).get("wrap_response", True)
+    except Exception:
+        pass
+
+    if not wrap_response:
+        return content
+
+    task_name = job.get("name", job["id"])
+    return (
+        f"Cronjob Response: {task_name}\n"
+        f"-------------\n\n"
+        f"{content}\n\n"
+        f"Note: The agent cannot see this message, and therefore cannot respond to it."
+    )
+
+
+
 def _deliver_result(job: dict, content: str) -> None:
     """
     Deliver job output to the configured target (origin chat, specific platform, etc.).
 
-    Uses the standalone platform send functions from send_message_tool so delivery
-    works whether or not the gateway is running.
+    Uses exact-target handlers for integrations that own their own storage/API,
+    and the standalone platform send functions for gateway-routed delivery.
     """
+    exact_target = get_exact_delivery_target(job.get("deliver"))
+    if exact_target:
+        result = exact_target.handler(job, content)
+        suffix = ""
+        if isinstance(result, dict) and result.get("chat_id"):
+            suffix = f" chat {result['chat_id']}"
+        logger.info("Job '%s': delivered via exact target '%s'%s", job["id"], exact_target.name, suffix)
+        return
+
     target = _resolve_delivery_target(job)
     if not target:
         if job.get("deliver", "local") != "local":
@@ -183,26 +219,7 @@ def _deliver_result(job: dict, content: str) -> None:
         logger.warning("Job '%s': platform '%s' not configured/enabled", job["id"], platform_name)
         return
 
-    # Optionally wrap the content with a header/footer so the user knows this
-    # is a cron delivery.  Wrapping is on by default; set cron.wrap_response: false
-    # in config.yaml for clean output.
-    wrap_response = True
-    try:
-        user_cfg = load_config()
-        wrap_response = user_cfg.get("cron", {}).get("wrap_response", True)
-    except Exception:
-        pass
-
-    if wrap_response:
-        task_name = job.get("name", job["id"])
-        delivery_content = (
-            f"Cronjob Response: {task_name}\n"
-            f"-------------\n\n"
-            f"{content}\n\n"
-            f"Note: The agent cannot see this message, and therefore cannot respond to it."
-        )
-    else:
-        delivery_content = content
+    delivery_content = _build_gateway_delivery_content(job, content)
 
     # Run the async send in a fresh event loop (safe from any thread)
     coro = _send_to_platform(platform, pconfig, chat_id, delivery_content, thread_id=thread_id)

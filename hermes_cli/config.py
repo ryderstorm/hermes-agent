@@ -501,6 +501,16 @@ DEFAULT_CONFIG = {
         # Wrap delivered cron responses with a header (task name) and footer
         # ("The agent cannot see this message").  Set to false for clean output.
         "wrap_response": True,
+        # Optional direct delivery into Open WebUI's stored chats. Used when a
+        # cron job sets deliver="openwebui".
+        "openwebui": {
+            "base_url": "",
+            "api_key": "",
+            "title_template": "{job_name} – {date}",
+            "user_message_template": "Scheduled task result for {job_name} at {datetime}",
+            "model_name": "hermes-agent",
+            "timeout_seconds": 30,
+        },
     },
 
     # Config schema version - bump this when adding new required fields
@@ -744,6 +754,14 @@ OPTIONAL_ENV_VARS = {
         "tools": ["web_search", "web_extract", "web_crawl"],
         "password": True,
         "category": "tool",
+    },
+    "OPENWEBUI_API_KEY": {
+        "description": "Open WebUI API key for cron jobs that deliver to Open WebUI",
+        "prompt": "Open WebUI API key",
+        "url": "https://docs.openwebui.com/",
+        "password": True,
+        "category": "setting",
+        "advanced": True,
     },
     "BROWSERBASE_API_KEY": {
         "description": "Browserbase API key for cloud browser (optional — local browser works without this)",
