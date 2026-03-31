@@ -46,8 +46,14 @@ class TestGuidanceConstants:
         assert "like a diary" not in MEMORY_GUIDANCE
         assert ">80%" not in MEMORY_GUIDANCE
 
-    def test_session_search_guidance_is_simple_cross_session_recall(self):
+    def test_session_search_guidance_prioritizes_db_recall_for_timelines_and_metrics(self):
         assert "relevant cross-session context exists" in SESSION_SEARCH_GUIDANCE
+        assert "timelines" in SESSION_SEARCH_GUIDANCE
+        assert "dates" in SESSION_SEARCH_GUIDANCE
+        assert "timestamps" in SESSION_SEARCH_GUIDANCE
+        assert "counts" in SESSION_SEARCH_GUIDANCE
+        assert "metrics" in SESSION_SEARCH_GUIDANCE
+        assert "continuity memory" in SESSION_SEARCH_GUIDANCE
         assert "recent turns of the current session" not in SESSION_SEARCH_GUIDANCE
 
 
