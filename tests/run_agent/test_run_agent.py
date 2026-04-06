@@ -651,6 +651,77 @@ class TestBuildSystemPrompt:
         prompt = agent._build_system_prompt(system_message="Custom instruction")
         assert "Custom instruction" in prompt
 
+    def test_includes_guidelines_when_present_and_context_enabled(self, tmp_path, monkeypatch):
+        hermes_home = tmp_path / "hermes_home"
+        hermes_home.mkdir()
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        (hermes_home / "GUIDELINES.md").write_text("Never bypass git hooks.", encoding="utf-8")
+
+        with (
+            patch("run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")),
+            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("run_agent.OpenAI"),
+        ):
+            agent = AIAgent(
+                api_key="***",
+                quiet_mode=True,
+                skip_context_files=False,
+                skip_memory=True,
+            )
+            agent.client = MagicMock()
+            prompt = agent._build_system_prompt()
+
+        assert "# Global Guidelines" in prompt
+        assert "Never bypass git hooks." in prompt
+
+    def test_guidelines_appear_after_system_message(self, tmp_path, monkeypatch):
+        hermes_home = tmp_path / "hermes_home"
+        hermes_home.mkdir()
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        (hermes_home / "SOUL.md").write_text("Soul identity text.", encoding="utf-8")
+        (hermes_home / "GUIDELINES.md").write_text("Guidelines content.", encoding="utf-8")
+
+        with (
+            patch("run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")),
+            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("run_agent.OpenAI"),
+        ):
+            agent = AIAgent(
+                api_key="***",
+                quiet_mode=True,
+                skip_context_files=False,
+                skip_memory=True,
+            )
+            agent.client = MagicMock()
+            prompt = agent._build_system_prompt(system_message="Custom instruction")
+
+        assert prompt.index("Soul identity text.") < prompt.index("Custom instruction")
+        assert prompt.index("Custom instruction") < prompt.index("# Global Guidelines")
+        assert prompt.index("# Global Guidelines") < prompt.index("Conversation started:")
+
+    def test_skip_context_files_skips_guidelines(self, tmp_path, monkeypatch):
+        hermes_home = tmp_path / "hermes_home"
+        hermes_home.mkdir()
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        (hermes_home / "GUIDELINES.md").write_text("Guidelines content.", encoding="utf-8")
+
+        with (
+            patch("run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")),
+            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("run_agent.OpenAI"),
+        ):
+            agent = AIAgent(
+                api_key="***",
+                quiet_mode=True,
+                skip_context_files=True,
+                skip_memory=True,
+            )
+            agent.client = MagicMock()
+            prompt = agent._build_system_prompt()
+
+        assert "# Global Guidelines" not in prompt
+        assert "Guidelines content." not in prompt
+
     def test_memory_guidance_when_memory_tool_loaded(self, agent_with_memory_tool):
         from agent.prompt_builder import MEMORY_GUIDANCE
 
