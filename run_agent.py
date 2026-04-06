@@ -98,7 +98,7 @@ from agent.model_metadata import (
 from agent.context_compressor import ContextCompressor
 from agent.subdirectory_hints import SubdirectoryHintTracker
 from agent.prompt_caching import apply_anthropic_cache_control
-from agent.prompt_builder import build_skills_system_prompt, build_context_files_prompt, build_environment_hints, load_soul_md, TOOL_USE_ENFORCEMENT_GUIDANCE, TOOL_USE_ENFORCEMENT_MODELS, DEVELOPER_ROLE_MODELS, GOOGLE_MODEL_OPERATIONAL_GUIDANCE, OPENAI_MODEL_EXECUTION_GUIDANCE
+from agent.prompt_builder import build_skills_system_prompt, build_context_files_prompt, build_environment_hints, load_soul_md, load_guidelines_md, TOOL_USE_ENFORCEMENT_GUIDANCE, TOOL_USE_ENFORCEMENT_MODELS, DEVELOPER_ROLE_MODELS, GOOGLE_MODEL_OPERATIONAL_GUIDANCE, OPENAI_MODEL_EXECUTION_GUIDANCE
 from agent.usage_pricing import estimate_usage_cost, normalize_usage
 from agent.codex_responses_adapter import (
     _chat_content_to_responses_parts,
@@ -4002,11 +4002,12 @@ class AIAgent:
         # Layers (in order):
         #   1. Agent identity — SOUL.md when available, else DEFAULT_AGENT_IDENTITY
         #   2. User / gateway system prompt (if provided)
-        #   3. Persistent memory (frozen snapshot)
-        #   4. Skills guidance (if skills tools are loaded)
-        #   5. Context files (AGENTS.md, .cursorrules — SOUL.md excluded here when used as identity)
-        #   6. Current date & time (frozen at build time)
-        #   7. Platform-specific formatting hint
+        #   3. Global operational guidelines — GUIDELINES.md from HERMES_HOME
+        #   4. Persistent memory (frozen snapshot)
+        #   5. Skills guidance (if skills tools are loaded)
+        #   6. Context files (AGENTS.md, .cursorrules — SOUL.md excluded here when used as identity)
+        #   7. Current date & time (frozen at build time)
+        #   8. Platform-specific formatting hint
 
         # Try SOUL.md as primary identity (unless context files are skipped)
         _soul_loaded = False
@@ -4073,6 +4074,11 @@ class AIAgent:
         # API-call time only so it stays out of the cached/stored system prompt.
         if system_message is not None:
             prompt_parts.append(system_message)
+
+        if not self.skip_context_files:
+            guidelines_prompt = load_guidelines_md()
+            if guidelines_prompt:
+                prompt_parts.append(guidelines_prompt)
 
         if self._memory_store:
             if self._memory_enabled:

@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Context file scanning — detect prompt injection in AGENTS.md, .cursorrules,
-# SOUL.md before they get injected into the system prompt.
+# SOUL.md, GUIDELINES.md before they get injected into the system prompt.
 # ---------------------------------------------------------------------------
 
 _CONTEXT_THREAT_PATTERNS = [
@@ -928,6 +928,42 @@ def load_soul_md() -> Optional[str]:
         return content
     except Exception as e:
         logger.debug("Could not read SOUL.md from %s: %s", soul_path, e)
+        return None
+
+
+def load_guidelines_md() -> Optional[str]:
+    """Load GUIDELINES.md from HERMES_HOME and return it as wrapped context.
+
+    Unlike SOUL.md, GUIDELINES.md is not identity text. It is injected as a
+    separate global operating-guidelines layer with an explicit wrapper.
+    """
+    try:
+        from hermes_cli.config import ensure_hermes_home
+        ensure_hermes_home()
+    except Exception as e:
+        logger.debug("Could not ensure HERMES_HOME before loading GUIDELINES.md: %s", e)
+
+    guidelines_path = get_hermes_home() / "GUIDELINES.md"
+    if not guidelines_path.exists():
+        return None
+    try:
+        content = guidelines_path.read_text(encoding="utf-8").strip()
+        if not content:
+            return None
+        content = _scan_context_content(content, "GUIDELINES.md")
+        wrapped = (
+            "# Global Guidelines\n\n"
+            "The following global operational guidelines have been loaded from "
+            "HERMES_HOME and should be followed unless higher-priority "
+            "instructions override them.\n"
+            "This file is user-owned context, not persistent memory. Do not edit "
+            "it unless the user explicitly asks.\n\n"
+            "## GUIDELINES.md\n\n"
+            f"{content}"
+        )
+        return _truncate_content(wrapped, "GUIDELINES.md")
+    except Exception as e:
+        logger.debug("Could not read GUIDELINES.md from %s: %s", guidelines_path, e)
         return None
 
 
