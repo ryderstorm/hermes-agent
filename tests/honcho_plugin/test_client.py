@@ -251,8 +251,8 @@ class TestFromGlobalConfig:
             config = HonchoClientConfig.from_global_config(config_path=config_file)
         assert config.base_url == "http://config-host:9000"
 
-    def test_base_url_not_read_from_host_block(self, tmp_path):
-        """baseUrl is a root-level connection setting, not overridable per-host (consistent with apiKey)."""
+    def test_base_url_from_host_block_camel_case(self, tmp_path):
+        """Host-level baseUrl should be honored for self-hosted Honcho."""
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({
             "baseUrl": "http://root:9000",
@@ -260,7 +260,25 @@ class TestFromGlobalConfig:
         }))
 
         config = HonchoClientConfig.from_global_config(config_path=config_file)
-        assert config.base_url == "http://root:9000"
+        assert config.base_url == "http://host-block:9001"
+
+    def test_base_url_from_host_block_snake_case(self, tmp_path):
+        """Host-level base_url should also be honored for self-hosted Honcho."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({
+            "hosts": {"hermes": {"base_url": "http://host-block:9001"}},
+        }))
+
+        config = HonchoClientConfig.from_global_config(config_path=config_file)
+        assert config.base_url == "http://host-block:9001"
+
+    def test_base_url_from_root_snake_case(self, tmp_path):
+        """Root-level base_url should be accepted as an alias for baseUrl."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"base_url": "http://root-snake:9000"}))
+
+        config = HonchoClientConfig.from_global_config(config_path=config_file)
+        assert config.base_url == "http://root-snake:9000"
 
     def test_timeout_from_config_root(self, tmp_path):
         config_file = tmp_path / "config.json"
