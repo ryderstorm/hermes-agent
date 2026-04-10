@@ -2,7 +2,7 @@
 Cron subcommand for hermes CLI.
 
 Handles standalone cron management commands like list, create, edit,
-pause/resume/run/remove, status, and tick.
+pause/resume/run/remove, status, preflight, and tick.
 """
 
 import json
@@ -122,6 +122,39 @@ def cron_tick():
     """Run due jobs once and exit."""
     from cron.scheduler import tick
     tick(verbose=True)
+
+
+def cron_preflight(deliver: str = "openwebui") -> int:
+    """Validate a direct cron delivery target configuration with a live smoke test."""
+    from cron.delivery import get_exact_delivery_target
+
+    normalized = str(deliver or "").strip().lower()
+    target = get_exact_delivery_target(normalized)
+    if not target:
+        print(color(f"Unknown direct cron delivery target: {deliver}", Colors.RED))
+        return 1
+    if not target.preflight:
+        print(color(f"Cron delivery target '{target.name}' does not expose a preflight check.", Colors.RED))
+        return 1
+
+    try:
+        result = target.preflight()
+    except Exception as exc:
+        print(color(f"Cron delivery preflight failed for {target.name}: {exc}", Colors.RED))
+        return 1
+
+    print()
+    print(color(f"✓ Cron delivery target '{target.name}' is ready", Colors.GREEN))
+    if result.get("base_url"):
+        print(f"  Base URL:   {result['base_url']}")
+    if result.get("version"):
+        print(f"  Version:    {result['version']}")
+    if result.get("chat_count") is not None:
+        print(f"  Chat count: {result['chat_count']}")
+    if result.get("message"):
+        print(f"  Result:     {result['message']}")
+    print()
+    return 0
 
 
 def cron_status():
@@ -263,6 +296,9 @@ def cron_command(args):
         cron_status()
         return 0
 
+    if subcmd == "preflight":
+        return cron_preflight(getattr(args, "deliver", "openwebui"))
+
     if subcmd == "tick":
         cron_tick()
         return 0
@@ -286,5 +322,5 @@ def cron_command(args):
         return _job_action("remove", args.job_id, "Removed")
 
     print(f"Unknown cron command: {subcmd}")
-    print("Usage: hermes cron [list|create|edit|pause|resume|run|remove|status|tick]")
+    print("Usage: hermes cron [list|create|edit|pause|resume|run|remove|status|preflight|tick]")
     sys.exit(1)

@@ -749,6 +749,16 @@ DEFAULT_CONFIG = {
         # Wrap delivered cron responses with a header (task name) and footer
         # ("The agent cannot see this message").  Set to false for clean output.
         "wrap_response": True,
+        # Optional direct delivery into Open WebUI's stored chats. Used when a
+        # cron job sets deliver="openwebui".
+        "openwebui": {
+            "base_url": "",
+            "api_key": "",
+            "title_template": "{job_name} – {date}",
+            "user_message_template": "Scheduled task result for {job_name} at {datetime}",
+            "model_name": "hermes-agent",
+            "timeout_seconds": 30,
+        },
     },
 
     # Logging — controls file logging to ~/.hermes/logs/.
@@ -1024,36 +1034,12 @@ OPTIONAL_ENV_VARS = {
         "category": "provider",
         "advanced": True,
     },
-    "XIAOMI_API_KEY": {
-        "description": "Xiaomi MiMo API key for MiMo models (mimo-v2-pro, mimo-v2-omni, mimo-v2-flash)",
-        "prompt": "Xiaomi MiMo API Key",
-        "url": "https://platform.xiaomimimo.com",
+    "OPENWEBUI_API_KEY": {
+        "description": "Open WebUI API key for cron jobs that deliver to Open WebUI",
+        "prompt": "Open WebUI API key",
+        "url": "https://docs.openwebui.com/",
         "password": True,
-        "category": "provider",
-    },
-    "XIAOMI_BASE_URL": {
-        "description": "Xiaomi MiMo base URL override (default: https://api.xiaomimimo.com/v1)",
-        "prompt": "Xiaomi base URL (leave empty for default)",
-        "url": None,
-        "password": False,
-        "category": "provider",
-        "advanced": True,
-    },
-    "AWS_REGION": {
-        "description": "AWS region for Bedrock API calls (e.g. us-east-1, eu-central-1)",
-        "prompt": "AWS Region",
-        "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/bedrock-regions.html",
-        "password": False,
-        "category": "provider",
-        "advanced": True,
-    },
-    "AWS_PROFILE": {
-        "description": "AWS named profile for Bedrock authentication (from ~/.aws/credentials)",
-        "prompt": "AWS Profile",
-        "url": None,
-        "password": False,
-        "category": "provider",
-        "advanced": True,
+        "category": "setting",
     },
 
     # ── Tool API keys ──
