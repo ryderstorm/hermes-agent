@@ -7140,10 +7140,7 @@ For more help on a command:
         "prompt", nargs="?", help="Optional self-contained prompt or task instruction"
     )
     cron_create.add_argument("--name", help="Optional human-friendly job name")
-    cron_create.add_argument(
-        "--deliver",
-        help="Delivery target: origin, local, telegram, discord, signal, or platform:chat_id",
-    )
+    cron_create.add_argument("--deliver", help="Delivery target: origin, local, openwebui, telegram, discord, signal, or platform:chat_id")
     cron_create.add_argument("--repeat", type=int, help="Optional repeat count")
     cron_create.add_argument(
         "--skill",
@@ -7164,7 +7161,7 @@ For more help on a command:
     cron_edit.add_argument("--schedule", help="New schedule")
     cron_edit.add_argument("--prompt", help="New prompt/task instruction")
     cron_edit.add_argument("--name", help="New job name")
-    cron_edit.add_argument("--deliver", help="New delivery target")
+    cron_edit.add_argument("--deliver", help="New delivery target (for example: local, origin, openwebui, telegram, or platform:chat_id)")
     cron_edit.add_argument("--repeat", type=int, help="New repeat count")
     cron_edit.add_argument(
         "--skill",
@@ -7214,6 +7211,10 @@ For more help on a command:
 
     # cron status
     cron_subparsers.add_parser("status", help="Check if cron scheduler is running")
+
+    # cron preflight
+    cron_preflight = cron_subparsers.add_parser("preflight", help="Validate config for a cron delivery target")
+    cron_preflight.add_argument("deliver", nargs="?", default="openwebui", help="Exact delivery target to validate (default: openwebui)")
 
     # cron tick (mostly for debugging)
     cron_tick = cron_subparsers.add_parser("tick", help="Run due jobs once and exit")

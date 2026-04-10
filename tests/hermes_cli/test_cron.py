@@ -1,6 +1,7 @@
 """Tests for hermes_cli.cron command handling."""
 
 from argparse import Namespace
+from unittest.mock import patch
 
 import pytest
 
@@ -17,6 +18,40 @@ def tmp_cron_dir(tmp_path, monkeypatch):
 
 
 class TestCronCommandLifecycle:
+    def test_preflight_runs_exact_target_check(self, capsys):
+        with patch("cron.delivery.get_exact_delivery_target") as get_target:
+            get_target.return_value = type(
+                "Target",
+                (),
+                {
+                    "name": "openwebui",
+                    "preflight": staticmethod(
+                        lambda: {
+                            "base_url": "https://open-webui.example.com",
+                            "version": "0.8.12",
+                            "chat_count": 12,
+                            "message": "Open WebUI API reachable and authenticated chat listing succeeded.",
+                        }
+                    ),
+                },
+            )()
+
+            exit_code = cron_command(Namespace(cron_command="preflight", deliver="openwebui"))
+
+        out = capsys.readouterr().out
+        assert exit_code == 0
+        assert "Cron delivery target 'openwebui' is ready" in out
+        assert "Version:    0.8.12" in out
+        assert "Chat count: 12" in out
+
+    def test_preflight_rejects_unknown_exact_target(self, capsys):
+        with patch("cron.delivery.get_exact_delivery_target", return_value=None):
+            exit_code = cron_command(Namespace(cron_command="preflight", deliver="unknown"))
+
+        out = capsys.readouterr().out
+        assert exit_code == 1
+        assert "Unknown direct cron delivery target: unknown" in out
+
     def test_pause_resume_run(self, tmp_cron_dir, capsys):
         job = create_job(prompt="Check server status", schedule="every 1h")
 

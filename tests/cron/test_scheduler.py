@@ -267,6 +267,22 @@ class TestResolveDeliveryTarget:
 class TestDeliverResultWrapping:
     """Verify that cron deliveries are wrapped with header/footer and no longer mirrored."""
 
+    def test_openwebui_delivery_uses_raw_content(self):
+        job = {
+            "id": "test-job",
+            "name": "nightly-report",
+            "deliver": "openwebui",
+        }
+
+        exact_target = MagicMock()
+        exact_target.name = "openwebui"
+        exact_target.handler.return_value = {"chat_id": "chat-123"}
+
+        with patch("cron.scheduler.get_exact_delivery_target", return_value=exact_target):
+            _deliver_result(job, "Open WebUI task result body")
+
+        exact_target.handler.assert_called_once_with(job, "Open WebUI task result body")
+
     def test_delivery_wraps_content_with_header_and_footer(self):
         """Delivered content should include task name header and agent-invisible note."""
         from gateway.config import Platform

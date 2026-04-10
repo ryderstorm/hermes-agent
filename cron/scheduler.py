@@ -37,6 +37,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from hermes_constants import get_hermes_home
 from hermes_cli.config import load_config
 from hermes_time import now as _hermes_now
+from cron.delivery import get_exact_delivery_target
 
 logger = logging.getLogger(__name__)
 
@@ -270,6 +271,9 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
     """
     Deliver job output to the configured target(s) (origin chat, specific platform, etc.).
 
+    Uses exact-target handlers for integrations that own their own storage/API,
+    then falls back to the normal gateway-routed delivery path.
+
     When ``adapters`` and ``loop`` are provided (gateway is running), tries to
     use the live adapter first — this supports E2EE rooms (e.g. Matrix) where
     the standalone HTTP path cannot encrypt.  Falls back to standalone send if
@@ -277,6 +281,20 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
 
     Returns None on success, or an error string on failure.
     """
+    exact_target = get_exact_delivery_target(job.get("deliver"))
+    if exact_target:
+        try:
+            result = exact_target.handler(job, content)
+        except Exception as exc:
+            msg = f"exact target '{exact_target.name}' delivery failed: {exc}"
+            logger.error("Job '%s': %s", job["id"], msg)
+            return msg
+        suffix = ""
+        if isinstance(result, dict) and result.get("chat_id"):
+            suffix = f" chat {result['chat_id']}"
+        logger.info("Job '%s': delivered via exact target '%s'%s", job["id"], exact_target.name, suffix)
+        return None
+
     targets = _resolve_delivery_targets(job)
     if not targets:
         if job.get("deliver", "local") != "local":
