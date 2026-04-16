@@ -369,6 +369,7 @@ class TestConcludeToolDispatch:
     def test_conclude_schema_has_no_anyof(self):
         """anyOf/oneOf/allOf breaks Anthropic and Fireworks APIs — schema must be plain object."""
         from plugins.memory.honcho import CONCLUDE_SCHEMA
+
         params = CONCLUDE_SCHEMA["parameters"]
         assert params["type"] == "object"
         assert "conclusion" in params["properties"]
@@ -377,6 +378,19 @@ class TestConcludeToolDispatch:
         assert "oneOf" not in params
         assert "allOf" not in params
 
+    def test_honcho_conclude_schema_has_openai_compatible_top_level(self):
+        provider = HonchoMemoryProvider()
+
+        schema = next(
+            tool for tool in provider.get_tool_schemas() if tool["name"] == "honcho_conclude"
+        )
+
+        parameters = schema["parameters"]
+        assert parameters["type"] == "object"
+        assert "anyOf" not in parameters
+        assert "oneOf" not in parameters
+        assert "allOf" not in parameters
+        assert "not" not in parameters
     def test_honcho_conclude_defaults_to_user_peer(self):
         provider = HonchoMemoryProvider()
         provider._session_initialized = True
