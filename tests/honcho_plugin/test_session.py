@@ -366,6 +366,20 @@ class TestPeerLookupHelpers:
 
 
 class TestConcludeToolDispatch:
+    def test_honcho_conclude_schema_has_openai_compatible_top_level(self):
+        provider = HonchoMemoryProvider()
+
+        schema = next(
+            tool for tool in provider.get_tool_schemas() if tool["name"] == "honcho_conclude"
+        )
+
+        parameters = schema["parameters"]
+        assert parameters["type"] == "object"
+        assert "anyOf" not in parameters
+        assert "oneOf" not in parameters
+        assert "allOf" not in parameters
+        assert "not" not in parameters
+
     def test_honcho_conclude_defaults_to_user_peer(self):
         provider = HonchoMemoryProvider()
         provider._session_initialized = True
