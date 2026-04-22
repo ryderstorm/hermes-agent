@@ -1083,6 +1083,25 @@ class TestRunJobSkillBacked:
         assert "Combine the results." in prompt_arg
 
 
+class _ImmediateFuture:
+    def __init__(self, result):
+        self._result = result
+
+    def result(self):
+        return self._result
+
+
+class _ImmediateExecutor:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def submit(self, fn, *args, **kwargs):
+        return _ImmediateFuture(fn(*args, **kwargs))
+
+
 class TestSilentDelivery:
     """Verify that [SILENT] responses suppress delivery while still saving output."""
 
@@ -1094,67 +1113,97 @@ class TestSilentDelivery:
             "origin": {"platform": "telegram", "chat_id": "123"},
         }
 
-    def test_silent_response_suppresses_delivery(self, caplog):
-        with patch("cron.scheduler.get_due_jobs", return_value=[self._make_job()]), \
+    def test_silent_response_suppresses_delivery(self, caplog, tmp_path):
+        lock_dir = tmp_path / "cron"
+        lock_file = lock_dir / ".tick.lock"
+        with patch("cron.scheduler._LOCK_DIR", lock_dir), \
+             patch("cron.scheduler._LOCK_FILE", lock_file), \
+             patch("cron.scheduler.get_due_jobs", return_value=[self._make_job()]), \
              patch("cron.scheduler.run_job", return_value=(True, "# output", "[SILENT]", None)), \
              patch("cron.scheduler.save_job_output", return_value="/tmp/out.md"), \
              patch("cron.scheduler._deliver_result") as deliver_mock, \
-             patch("cron.scheduler.mark_job_run"):
+             patch("cron.scheduler.mark_job_run"), \
+             patch("cron.scheduler.concurrent.futures.ThreadPoolExecutor", return_value=_ImmediateExecutor()):
             from cron.scheduler import tick
             with caplog.at_level(logging.INFO, logger="cron.scheduler"):
                 tick(verbose=False)
         deliver_mock.assert_not_called()
         assert any(SILENT_MARKER in r.message for r in caplog.records)
 
-    def test_silent_with_note_suppresses_delivery(self):
-        with patch("cron.scheduler.get_due_jobs", return_value=[self._make_job()]), \
+    def test_silent_with_note_suppresses_delivery(self, tmp_path):
+        lock_dir = tmp_path / "cron"
+        lock_file = lock_dir / ".tick.lock"
+        with patch("cron.scheduler._LOCK_DIR", lock_dir), \
+             patch("cron.scheduler._LOCK_FILE", lock_file), \
+             patch("cron.scheduler.get_due_jobs", return_value=[self._make_job()]), \
              patch("cron.scheduler.run_job", return_value=(True, "# output", "[SILENT] No changes detected", None)), \
              patch("cron.scheduler.save_job_output", return_value="/tmp/out.md"), \
              patch("cron.scheduler._deliver_result") as deliver_mock, \
-             patch("cron.scheduler.mark_job_run"):
+             patch("cron.scheduler.mark_job_run"), \
+             patch("cron.scheduler.concurrent.futures.ThreadPoolExecutor", return_value=_ImmediateExecutor()):
             from cron.scheduler import tick
             tick(verbose=False)
         deliver_mock.assert_not_called()
 
-    def test_silent_trailing_suppresses_delivery(self):
+    def test_silent_trailing_suppresses_delivery(self, tmp_path):
         """Agent appended [SILENT] after explanation text — must still suppress."""
         response = "2 deals filtered out (like<10, reply<15).\n\n[SILENT]"
-        with patch("cron.scheduler.get_due_jobs", return_value=[self._make_job()]), \
+        lock_dir = tmp_path / "cron"
+        lock_file = lock_dir / ".tick.lock"
+        with patch("cron.scheduler._LOCK_DIR", lock_dir), \
+             patch("cron.scheduler._LOCK_FILE", lock_file), \
+             patch("cron.scheduler.get_due_jobs", return_value=[self._make_job()]), \
              patch("cron.scheduler.run_job", return_value=(True, "# output", response, None)), \
              patch("cron.scheduler.save_job_output", return_value="/tmp/out.md"), \
              patch("cron.scheduler._deliver_result") as deliver_mock, \
-             patch("cron.scheduler.mark_job_run"):
+             patch("cron.scheduler.mark_job_run"), \
+             patch("cron.scheduler.concurrent.futures.ThreadPoolExecutor", return_value=_ImmediateExecutor()):
             from cron.scheduler import tick
             tick(verbose=False)
         deliver_mock.assert_not_called()
 
-    def test_silent_is_case_insensitive(self):
-        with patch("cron.scheduler.get_due_jobs", return_value=[self._make_job()]), \
+    def test_silent_is_case_insensitive(self, tmp_path):
+        lock_dir = tmp_path / "cron"
+        lock_file = lock_dir / ".tick.lock"
+        with patch("cron.scheduler._LOCK_DIR", lock_dir), \
+             patch("cron.scheduler._LOCK_FILE", lock_file), \
+             patch("cron.scheduler.get_due_jobs", return_value=[self._make_job()]), \
              patch("cron.scheduler.run_job", return_value=(True, "# output", "[silent] nothing new", None)), \
              patch("cron.scheduler.save_job_output", return_value="/tmp/out.md"), \
              patch("cron.scheduler._deliver_result") as deliver_mock, \
-             patch("cron.scheduler.mark_job_run"):
+             patch("cron.scheduler.mark_job_run"), \
+             patch("cron.scheduler.concurrent.futures.ThreadPoolExecutor", return_value=_ImmediateExecutor()):
             from cron.scheduler import tick
             tick(verbose=False)
         deliver_mock.assert_not_called()
 
-    def test_failed_job_always_delivers(self):
+    def test_failed_job_always_delivers(self, tmp_path):
         """Failed jobs deliver regardless of [SILENT] in output."""
-        with patch("cron.scheduler.get_due_jobs", return_value=[self._make_job()]), \
+        lock_dir = tmp_path / "cron"
+        lock_file = lock_dir / ".tick.lock"
+        with patch("cron.scheduler._LOCK_DIR", lock_dir), \
+             patch("cron.scheduler._LOCK_FILE", lock_file), \
+             patch("cron.scheduler.get_due_jobs", return_value=[self._make_job()]), \
              patch("cron.scheduler.run_job", return_value=(False, "# output", "", "some error")), \
              patch("cron.scheduler.save_job_output", return_value="/tmp/out.md"), \
              patch("cron.scheduler._deliver_result") as deliver_mock, \
-             patch("cron.scheduler.mark_job_run"):
+             patch("cron.scheduler.mark_job_run"), \
+             patch("cron.scheduler.concurrent.futures.ThreadPoolExecutor", return_value=_ImmediateExecutor()):
             from cron.scheduler import tick
             tick(verbose=False)
         deliver_mock.assert_called_once()
 
-    def test_output_saved_even_when_delivery_suppressed(self):
-        with patch("cron.scheduler.get_due_jobs", return_value=[self._make_job()]), \
+    def test_output_saved_even_when_delivery_suppressed(self, tmp_path):
+        lock_dir = tmp_path / "cron"
+        lock_file = lock_dir / ".tick.lock"
+        with patch("cron.scheduler._LOCK_DIR", lock_dir), \
+             patch("cron.scheduler._LOCK_FILE", lock_file), \
+             patch("cron.scheduler.get_due_jobs", return_value=[self._make_job()]), \
              patch("cron.scheduler.run_job", return_value=(True, "# full output", "[SILENT]", None)), \
              patch("cron.scheduler.save_job_output") as save_mock, \
              patch("cron.scheduler._deliver_result") as deliver_mock, \
-             patch("cron.scheduler.mark_job_run"):
+             patch("cron.scheduler.mark_job_run"), \
+             patch("cron.scheduler.concurrent.futures.ThreadPoolExecutor", return_value=_ImmediateExecutor()):
             save_mock.return_value = "/tmp/out.md"
             from cron.scheduler import tick
             tick(verbose=False)
