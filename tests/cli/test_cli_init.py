@@ -96,6 +96,39 @@ class TestVerboseAndToolProgress:
         assert cli.tool_progress_mode in ("off", "new", "all", "verbose")
 
 
+class TestNotificationHookDisplayConfig:
+    def test_notification_hook_defaults_are_available(self):
+        cli = _make_cli()
+        assert cli.notification_hook_enabled is False
+        assert cli.notification_hook_script == ""
+        assert cli.notification_hook_timeout_seconds == 5
+
+    def test_notification_hook_display_overrides_are_honored(self):
+        cli = _make_cli(
+            config_overrides={
+                "display": {
+                    "notification_hook_enabled": True,
+                    "notification_hook_script": "~/bin/hermes-notify",
+                    "notification_hook_timeout_seconds": 9,
+                }
+            }
+        )
+        assert cli.notification_hook_enabled is True
+        assert cli.notification_hook_script == "~/bin/hermes-notify"
+        assert cli.notification_hook_timeout_seconds == 9
+
+    def test_notification_hook_quoted_false_stays_disabled(self):
+        cli = _make_cli(
+            config_overrides={
+                "display": {
+                    "notification_hook_enabled": "false",
+                    "notification_hook_script": "~/bin/hermes-notify",
+                }
+            }
+        )
+        assert cli.notification_hook_enabled is False
+
+
 class TestBusyInputMode:
     def test_default_busy_input_mode_is_interrupt(self):
         cli = _make_cli()
