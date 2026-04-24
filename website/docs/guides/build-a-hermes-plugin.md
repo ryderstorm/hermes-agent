@@ -421,6 +421,10 @@ Each hook is documented in full on the **[Event Hooks reference](/docs/user-guid
 | [`on_session_end`](/docs/user-guide/features/hooks#on_session_end) | End of every `run_conversation` call + CLI exit | `session_id: str, completed: bool, interrupted: bool, model: str, platform: str` | ignored |
 | [`on_session_finalize`](/docs/user-guide/features/hooks#on_session_finalize) | CLI/gateway tears down an active session | `session_id: str \| None, platform: str` | ignored |
 | [`on_session_reset`](/docs/user-guide/features/hooks#on_session_reset) | Gateway swaps in a new session key (`/new`, `/reset`) | `session_id: str, platform: str` | ignored |
+| [`on_clarify`](/docs/user-guide/features/hooks#on_clarify) | CLI clarify prompt is waiting for user input | `session_id: str \| None, platform: str, cwd: str, preview: str, choices_count: int \| None` | ignored |
+| [`on_sudo_prompt`](/docs/user-guide/features/hooks#on_sudo_prompt) | CLI sudo password prompt is waiting for user input | `session_id: str \| None, platform: str, cwd: str` | ignored |
+| [`on_approval_request`](/docs/user-guide/features/hooks#on_approval_request) | CLI dangerous-command approval prompt is waiting for user input | `session_id: str \| None, platform: str, cwd: str, preview: str, description: str, choices_count: int` | ignored |
+| [`on_task_complete`](/docs/user-guide/features/hooks#on_task_complete) | CLI foreground response has finished rendering | `session_id: str \| None, platform: str, cwd: str, final_response_preview: str, final_response_length: int` | ignored |
 
 Most hooks are fire-and-forget observers — their return values are ignored. The exception is `pre_llm_call`, which can inject context into the conversation.
 

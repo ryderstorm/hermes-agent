@@ -989,10 +989,37 @@ display:
   compact: false          # Compact output mode (less whitespace)
   resume_display: full    # full (show previous messages on resume) | minimal (one-liner only)
   bell_on_complete: false # Play terminal bell when agent finishes (great for long tasks)
+  notification_hook_enabled: false        # CLI-only: enable user-owned notifier script
+  notification_hook_script: ""            # Executable path; Hermes passes event in argv[1] and JSON on stdin
+  notification_hook_timeout_seconds: 5    # Kill notifier if it hangs
   show_reasoning: false   # Show model reasoning/thinking above each response (toggle with /reasoning show|hide)
   streaming: false        # Stream tokens to terminal as they arrive (real-time output)
   show_cost: false        # Show estimated $ cost in the CLI status bar
   tool_preview_length: 0  # Max chars for tool call previews (0 = no limit, show full paths/commands)
+```
+
+CLI notification hooks are intentionally narrow and user-owned:
+
+- `on_clarify` fires when Hermes is blocked on a clarify prompt
+- `on_sudo_prompt` fires when Hermes is waiting on a sudo password
+- `on_approval_request` fires when Hermes is waiting on dangerous-command approval
+- `on_task_complete` fires after a foreground CLI response has rendered and control returns to you
+
+Hermes does not implement platform-specific desktop notifications here. Instead, it optionally runs your script as:
+
+- `argv[1]` = event name
+- `stdin` = small JSON payload
+
+This is CLI-scoped. It does not cover `/background`, messaging gateways, or quiet single-query automation. The script path must be absolute after `~` expansion; relative paths and bare executable names are rejected. Payload preview fields and descriptions are redacted and capped, but notifier scripts should still avoid writing full payloads to shared locations.
+
+```yaml
+# Example: shell-safe notifier script hook
+# Hermes runs: /path/to/hermes-notify on_task_complete
+# and writes the payload JSON to stdin.
+display:
+  notification_hook_enabled: true
+  notification_hook_script: /home/you/bin/hermes-notify
+  notification_hook_timeout_seconds: 5
 ```
 
 | Mode | What you see |

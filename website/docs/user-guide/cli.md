@@ -384,6 +384,211 @@ If the task fails, you'll see an error notification instead. If `display.bell_on
 Background sessions do not appear in your main conversation history. They are standalone sessions with their own task ID (e.g., `bg_143022_a1b2c3`).
 :::
 
+## CLI Notification Hooks
+
+Hermes can also call a user-owned local script for foreground CLI lifecycle events.
+
+Supported events:
+- `on_clarify` — Hermes is blocked on a clarify prompt
+- `on_sudo_prompt` — Hermes is waiting for a sudo password
+- `on_approval_request` — Hermes is waiting for dangerous-command approval
+- `on_task_complete` — the foreground response has finished rendering and control is back to you
+
+Hermes runs your script directly without shell interpolation:
+- `argv[1]` = event name
+- `stdin` = small JSON payload
+- `cwd` = the effective terminal workspace (`TERMINAL_CWD` when set, otherwise the launcher cwd)
+
+Payload fields always present:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `session_id` | string \| null | Active Hermes session id |
+| `platform` | string | Always `cli` for this feature |
+| `cwd` | string | Effective terminal workspace |
+
+Event-specific fields:
+
+| Event | Extra fields |
+| --- | --- |
+| `on_clarify` | `preview` (question preview), `choices_count` (omitted for open-ended clarify prompts) |
+| `on_sudo_prompt` | none |
+| `on_approval_request` | `preview` (command preview), `description`, `choices_count` |
+| `on_task_complete` | `final_response_preview`, `final_response_length` |
+
+Hermes does not emit `on_task_complete` for interrupted foreground runs; the event means a visible response finished rendering and control returned to the prompt.
+
+Example payloads:
+
+```json
+{
+  "session_id": "20260225_143052_a1b2c3",
+  "platform": "cli",
+  "cwd": "/home/damien/projects/hermes-agent",
+  "preview": "Need input?",
+  "choices_count": 2
+}
+```
+
+```json
+{
+  "session_id": "20260225_143052_a1b2c3",
+  "platform": "cli",
+  "cwd": "/home/damien/projects/hermes-agent",
+  "final_response_preview": "Done — updated the notification hook docs.",
+  "final_response_length": 44
+}
+```
+
+Example config:
+
+```yaml
+display:
+  notification_hook_enabled: true
+  notification_hook_script: /home/you/bin/hermes-notify
+  notification_hook_timeout_seconds: 5
+```
+
+`notification_hook_script` must resolve to an absolute executable file. `~` is expanded, but relative paths and bare executable names are rejected so hooks cannot change behavior based on the current project directory.
+
+Minimal example script:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+event="${1:-unknown}"
+payload="$(cat)"
+
+case "$event" in
+  on_task_complete)
+    notify-send "Hermes" "Foreground task complete"
+    ;;
+  on_clarify)
+    notify-send "Hermes" "Hermes is waiting for clarification"
+    ;;
+esac
+
+printf '%s\n' "$payload" >"${XDG_RUNTIME_DIR:-$HOME/.cache}/hermes-last-event.json"
+```
+
+:::warning
+Notification payloads may include sensitive snippets from command previews, clarify prompts, approval descriptions, response previews, cwd, and session identifiers. Hermes redacts common secret patterns before delivery, but your notifier should still avoid logging payloads verbatim to shared locations. If you persist payloads for testing, use a private directory and restrictive permissions.
+:::
+
+### Test your hook
+
+1. Create a private notifier script, for example `/home/you/bin/hermes-notify`, that appends `argv[1]` and stdin to a file under `$HOME/.cache` or another private directory.
+2. Run `chmod +x /home/you/bin/hermes-notify`.
+3. Enable `display.notification_hook_enabled`, set `display.notification_hook_script` to the absolute script path, and restart Hermes.
+4. Run a foreground non-quiet command such as `hermes --query "say done"`.
+5. Confirm the test file contains an `on_task_complete` payload.
+
+Runtime behavior and failure semantics:
+- Hermes only emits these hooks for foreground CLI events.
+- Prompt-blocking hooks (`on_clarify`, `on_sudo_prompt`, and `on_approval_request`) are delivered asynchronously so Hermes can continue the prompt flow.
+- `on_task_complete` is delivered synchronously after the response renders, so completion scripts can delay prompt return by up to `display.notification_hook_timeout_seconds`.
+- `display.notification_hook_enabled` gates whether the local script runs.
+- `display.notification_hook_script` is executed directly as `[script_path, event_name]` with the JSON payload on stdin; it must be an absolute executable file path after `~` expansion.
+- `display.notification_hook_timeout_seconds` applies to the local script subprocess only.
+- `preview`, `description`, and `final_response_preview` are redacted, whitespace-collapsed, and length-capped before delivery.
+- Plugin hook exceptions, script launch failures, and script timeouts do not interrupt the CLI; Hermes logs them for debugging and continues.
+- Hermes does not require a zero exit code from the script.
+
+Example: fuller Linux notifier using `notify-send`
+
+```python
+#!/usr/bin/env python3
+import json
+import os
+import subprocess
+import sys
+
+TIMEOUT_MS = 10000
+APP_NAME = "Hermes"
+DESKTOP_ENTRY = "hermes"
+EVENTS = {
+    "on_clarify": ("Hermes needs clarification", "A clarify prompt is waiting in the CLI."),
+    "on_sudo_prompt": ("Hermes needs sudo", "A sudo password prompt is waiting in the CLI."),
+    "on_approval_request": ("Hermes needs approval", "A dangerous-command approval prompt is waiting in the CLI."),
+    "on_task_complete": ("Hermes finished", "A foreground Hermes task completed."),
+}
+
+
+def compact(value, limit=220):
+    text = " ".join(str(value or "").split())
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def format_cwd(value, limit=120):
+    cwd = str(value or "").strip()
+    if not cwd:
+        return ""
+    home = os.path.expanduser("~")
+    if cwd.startswith(home):
+        cwd = "~" + cwd[len(home):]
+    return f"cwd: {compact(cwd, limit)}"
+
+
+def load_event(argv):
+    event = argv[1] if len(argv) > 1 else "hermes-event"
+    raw = sys.stdin.read().strip()
+    if not raw:
+        return event, {}
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        payload = {"raw": raw}
+    return event, payload if isinstance(payload, dict) else {"raw": payload}
+
+
+def render(event, payload):
+    title, fallback = EVENTS.get(event, ("Hermes notification", event))
+    body = (
+        compact(payload.get("final_response_preview"))
+        or compact(payload.get("preview"))
+        or compact(payload.get("raw"))
+        or fallback
+    )
+    cwd = format_cwd(payload.get("cwd"))
+    if event == "on_clarify" and isinstance(payload.get("choices_count"), int) and payload["choices_count"] > 0:
+        body = f"{body} Choices: {payload['choices_count']}."
+    elif event == "on_approval_request":
+        description = compact(payload.get("description"), 120)
+        if description and description not in body:
+            body = f"{body} {description}"
+    return title, f"{body}\n{cwd}" if cwd else body
+
+
+def main(argv):
+    event, payload = load_event(argv)
+    title, message = render(event, payload)
+    subprocess.run(
+        [
+            "notify-send",
+            "-t",
+            str(TIMEOUT_MS),
+            "--app-name",
+            APP_NAME,
+            "-h",
+            f"string:desktop-entry:{DESKTOP_ENTRY}",
+            title,
+            message,
+        ],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))
+```
+
+This feature is intentionally CLI-only and foreground-only. It does not cover `/background`, messaging gateways, or quiet single-query automation.
+
+Non-quiet single-shot runs (`hermes --query "..."` without `--quiet`) still go through the interactive chat render path, so `on_task_complete` fires for them. Only `--quiet` single-shot automation takes a separate path that skips these hooks.
+
 ## Quiet Mode
 
 By default, the CLI runs in quiet mode which:

@@ -246,6 +246,10 @@ def register(ctx):
 | [`on_session_end`](#on_session_end) | Session ends | ignored |
 | [`on_session_finalize`](#on_session_finalize) | CLI/gateway tears down an active session (flush, save, stats) | ignored |
 | [`on_session_reset`](#on_session_reset) | Gateway swaps in a fresh session key (e.g. `/new`, `/reset`) | ignored |
+| [`on_clarify`](#on_clarify) | CLI clarify prompt is waiting for user input | ignored |
+| [`on_sudo_prompt`](#on_sudo_prompt) | CLI sudo password prompt is waiting for user input | ignored |
+| [`on_approval_request`](#on_approval_request) | CLI dangerous-command approval prompt is waiting for user input | ignored |
+| [`on_task_complete`](#on_task_complete) | CLI foreground response has finished rendering | ignored |
 | [`subagent_stop`](#subagent_stop) | A `delegate_task` child has exited | ignored |
 | [`pre_gateway_dispatch`](#pre_gateway_dispatch) | Gateway received a user message, before auth + dispatch | `{"action": "skip" \| "rewrite" \| "allow", ...}` to influence flow |
 
@@ -654,6 +658,56 @@ def my_callback(session_id: str, platform: str, **kwargs):
 **Return value:** Ignored.
 
 **Use cases:** Reset per-session caches keyed by `session_id`, emit "session rotated" analytics, prime a fresh state bucket.
+
+---
+
+### `on_clarify`
+
+Fires in the interactive CLI when Hermes is blocked on a clarify prompt.
+
+**Callback signature:**
+
+```python
+def my_callback(session_id: str | None, platform: str, cwd: str, preview: str, choices_count: int | None = None, **kwargs):
+```
+
+Use this for local notifications that should alert the user when Hermes needs clarification. Preview-like fields are sanitized and capped before delivery.
+
+### `on_sudo_prompt`
+
+Fires in the interactive CLI when Hermes is blocked on a sudo password prompt.
+
+**Callback signature:**
+
+```python
+def my_callback(session_id: str | None, platform: str, cwd: str, **kwargs):
+```
+
+Use this for local notifications only; secrets such as the sudo password are never included in the payload.
+
+### `on_approval_request`
+
+Fires in the interactive CLI when Hermes is blocked on dangerous-command approval.
+
+**Callback signature:**
+
+```python
+def my_callback(session_id: str | None, platform: str, cwd: str, preview: str, description: str, choices_count: int, **kwargs):
+```
+
+The command preview and description are sanitized and capped before delivery.
+
+### `on_task_complete`
+
+Fires in the interactive CLI after a foreground response has finished rendering.
+
+**Callback signature:**
+
+```python
+def my_callback(session_id: str | None, platform: str, cwd: str, final_response_preview: str, final_response_length: int, **kwargs):
+```
+
+Hermes suppresses this hook for interrupted foreground runs and continuous voice loops. The response preview is sanitized and capped before delivery.
 
 ---
 
