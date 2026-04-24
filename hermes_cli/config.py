@@ -636,6 +636,9 @@ DEFAULT_CONFIG = {
         "resume_display": "full",
         "busy_input_mode": "interrupt",
         "bell_on_complete": False,
+        "notification_hook_enabled": False,
+        "notification_hook_script": "",
+        "notification_hook_timeout_seconds": 5,
         "show_reasoning": False,
         "streaming": False,
         "final_response_markdown": "strip",  # render | strip | raw
@@ -995,7 +998,7 @@ DEFAULT_CONFIG = {
     },
 
     # Config schema version - bump this when adding new required fields
-    "_config_version": 22,
+    "_config_version": 23,
 }
 
 # =============================================================================

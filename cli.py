@@ -77,7 +77,7 @@ _COMMAND_SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧
 # User-managed env files should override stale shell exports on restart.
 from hermes_constants import get_hermes_home, display_hermes_home
 from hermes_cli.env_loader import load_hermes_dotenv
-from utils import base_url_host_matches
+from utils import base_url_host_matches, is_truthy_value
 
 _hermes_home = get_hermes_home()
 _project_env = Path(__file__).parent / '.env'
@@ -1840,6 +1840,20 @@ class HermesCLI:
         self.resume_display = CLI_CONFIG["display"].get("resume_display", "full")
         # bell_on_complete: play terminal bell (\a) when agent finishes a response
         self.bell_on_complete = CLI_CONFIG["display"].get("bell_on_complete", False)
+        self.notification_hook_enabled = is_truthy_value(
+            CLI_CONFIG["display"].get("notification_hook_enabled", False),
+            default=False,
+        )
+        self.notification_hook_script = str(
+            CLI_CONFIG["display"].get("notification_hook_script", "") or ""
+        )
+        try:
+            _notif_timeout = int(
+                CLI_CONFIG["display"].get("notification_hook_timeout_seconds", 5)
+            )
+        except (TypeError, ValueError):
+            _notif_timeout = 5
+        self.notification_hook_timeout_seconds = max(1, _notif_timeout)
         # show_reasoning: display model thinking/reasoning before the response
         self.show_reasoning = CLI_CONFIG["display"].get("show_reasoning", False)
         # busy_input_mode: "interrupt" (Enter interrupts current run) or "queue" (Enter queues for next turn)
@@ -7878,6 +7892,13 @@ class HermesCLI:
         self._clarify_deadline = _time.monotonic() + timeout
         # Open-ended questions skip straight to freetext input
         self._clarify_freetext = is_open_ended
+        self._emit_cli_notification_event(
+            "on_clarify",
+            {
+                "preview": question,
+                "choices_count": len(choices) if choices else None,
+            },
+        )
 
         # Trigger prompt_toolkit repaint from this (non-main) thread
         self._invalidate()
@@ -7939,6 +7960,7 @@ class HermesCLI:
             "response_queue": response_queue,
         }
         self._sudo_deadline = _time.monotonic() + timeout
+        self._emit_cli_notification_event("on_sudo_prompt", {})
 
         self._invalidate()
 
@@ -7996,6 +8018,14 @@ class HermesCLI:
                 "response_queue": response_queue,
             }
             self._approval_deadline = _time.monotonic() + timeout
+            self._emit_cli_notification_event(
+                "on_approval_request",
+                {
+                    "preview": command,
+                    "description": description,
+                    "choices_count": len(self._approval_state["choices"]),
+                },
+            )
 
             self._invalidate()
 
@@ -8221,6 +8251,171 @@ class HermesCLI:
 
     def _secret_capture_callback(self, var_name: str, prompt: str, metadata=None) -> dict:
         return prompt_for_secret(self, var_name, prompt, metadata)
+
+    def _sanitize_notification_preview(self, preview: str | None, *, max_length: int = 160) -> str | None:
+        """Redact, collapse whitespace, and cap notification text to a small payload."""
+        if preview is None:
+            return None
+        try:
+            from agent.redact import redact_sensitive_text
+
+            redacted = redact_sensitive_text(str(preview))
+        except Exception:
+            logger.debug(
+                "Failed to redact CLI notification text; emitting placeholder",
+                exc_info=True,
+            )
+            redacted = "[notification text unavailable: redaction failed]"
+        cleaned = " ".join(redacted.split())
+        if not cleaned:
+            return None
+        if len(cleaned) <= max_length:
+            return cleaned
+        return cleaned[: max_length - 1].rstrip() + "…"
+
+    def _notification_effective_cwd(self) -> str:
+        """Return a validated effective terminal workspace for CLI notifications."""
+        fallback = Path.cwd()
+        candidate = os.getenv("TERMINAL_CWD") or str(fallback)
+        try:
+            path = Path(candidate).expanduser().resolve()
+            if path.is_dir():
+                return str(path)
+        except (OSError, RuntimeError):
+            pass
+        return str(fallback)
+
+    def _notification_hook_script_path(self) -> str | None:
+        """Return a validated absolute notification hook script path, if configured."""
+        script = str(getattr(self, "notification_hook_script", "") or "").strip()
+        if not script:
+            return None
+        try:
+            path = Path(script).expanduser()
+            if not path.is_absolute():
+                logger.debug("CLI notification hook script path must be absolute: %s", script)
+                return None
+            path = path.resolve()
+            if not path.is_file():
+                logger.debug("CLI notification hook script path is not a file: %s", path)
+                return None
+            if os.name != "nt" and not os.access(path, os.X_OK):
+                logger.debug("CLI notification hook script path is not executable: %s", path)
+                return None
+            return str(path)
+        except (OSError, RuntimeError):
+            logger.debug("Failed to validate CLI notification hook script path: %s", script, exc_info=True)
+            return None
+
+    def _emit_cli_notification_event(self, event_name: str, payload: dict[str, Any]) -> None:
+        """Emit a small CLI lifecycle payload to plugin hooks and an optional local script."""
+        session_id = self.agent.session_id if getattr(self, "agent", None) else getattr(self, "session_id", None)
+        merged_payload: dict[str, Any] = {
+            "session_id": session_id,
+            "platform": getattr(self, "platform", None) or "cli",
+            "cwd": self._notification_effective_cwd(),
+        }
+        merged_payload.update(payload or {})
+
+        preview = self._sanitize_notification_preview(merged_payload.get("preview"))
+        if preview is None:
+            merged_payload.pop("preview", None)
+        else:
+            merged_payload["preview"] = preview
+
+        final_response_preview = self._sanitize_notification_preview(
+            merged_payload.get("final_response_preview")
+        )
+        if final_response_preview is None:
+            merged_payload.pop("final_response_preview", None)
+        else:
+            merged_payload["final_response_preview"] = final_response_preview
+
+        description = self._sanitize_notification_preview(
+            merged_payload.get("description"),
+            max_length=500,
+        )
+        if description is None:
+            merged_payload.pop("description", None)
+        else:
+            merged_payload["description"] = description
+
+        if merged_payload.get("choices_count") is None:
+            merged_payload.pop("choices_count", None)
+
+        if event_name == "on_task_complete":
+            self._deliver_cli_notification_event(event_name, dict(merged_payload))
+            return
+
+        threading.Thread(
+            target=self._deliver_cli_notification_event,
+            args=(event_name, dict(merged_payload)),
+            daemon=True,
+            name=f"cli-notify-{event_name}",
+        ).start()
+
+    def _deliver_cli_notification_event(self, event_name: str, payload: dict[str, Any]) -> None:
+        """Deliver a prepared CLI notification payload outside the prompt path."""
+        try:
+            from hermes_cli.plugins import invoke_hook as _invoke_hook
+
+            _invoke_hook(event_name, **payload)
+        except Exception:
+            logger.debug("Failed to emit CLI notification hook %s", event_name, exc_info=True)
+
+        try:
+            self._run_notification_hook_script(event_name, payload)
+        except Exception:
+            logger.debug("Failed to run CLI notification hook script for %s", event_name, exc_info=True)
+
+    def _run_notification_hook_script(self, event_name: str, payload: dict[str, Any]) -> None:
+        """Run a user-owned notification script with event name argv[1] and JSON payload on stdin."""
+        if not getattr(self, "notification_hook_enabled", False):
+            return
+
+        script_path = self._notification_hook_script_path()
+        if not script_path:
+            return
+
+        import subprocess
+
+        completed = subprocess.run(
+            [script_path, event_name],
+            input=json.dumps(payload),
+            text=True,
+            capture_output=True,
+            cwd=self._notification_effective_cwd(),
+            timeout=getattr(self, "notification_hook_timeout_seconds", 5) or 5,
+            check=False,
+        )
+        if completed.returncode != 0:
+            logger.debug(
+                "CLI notification hook script %s exited non-zero for %s (rc=%s): %s",
+                script_path,
+                event_name,
+                completed.returncode,
+                (completed.stderr or "").strip()[:500],
+            )
+
+    def _emit_task_complete_event(self, response: str, *, interrupted: bool = False) -> None:
+        """Emit the foreground-only task-complete hook after visible completion."""
+        if interrupted:
+            return
+        if getattr(self, "_voice_mode", False) and getattr(self, "_voice_continuous", False):
+            return
+        self._emit_cli_notification_event(
+            "on_task_complete",
+            {
+                "final_response_preview": response,
+                "final_response_length": len(response or ""),
+            },
+        )
+
+    def _task_complete_was_interrupted(self, result: dict[str, Any] | None, interrupt_msg: str | None) -> bool:
+        """Return whether foreground completion hooks should treat the turn as interrupted."""
+        if result and result.get("interrupted"):
+            return True
+        return bool(interrupt_msg)
 
     def _capture_modal_input_snapshot(self) -> None:
         """Temporarily clear the input buffer and save the user's in-progress draft."""
@@ -8714,6 +8909,11 @@ class HermesCLI:
             if self.bell_on_complete:
                 sys.stdout.write("\a")
                 sys.stdout.flush()
+
+            self._emit_task_complete_event(
+                response,
+                interrupted=self._task_complete_was_interrupted(result, interrupt_msg),
+            )
 
             # Notify when iteration budget was hit
             if result and not result.get("completed") and not result.get("interrupted"):

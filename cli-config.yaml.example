@@ -854,6 +854,15 @@ display:
   # Works over SSH. Most terminals can be configured to flash the taskbar or play a sound.
   bell_on_complete: false
 
+  # CLI-only foreground notification hooks.
+  # When enabled, Hermes runs your executable script directly as:
+  #   /absolute/path/to/hermes-notify <event-name>
+  # and writes a small JSON payload to stdin. The path must be absolute after
+  # ~ expansion; relative paths and bare command names are rejected.
+  notification_hook_enabled: false
+  notification_hook_script: ""
+  notification_hook_timeout_seconds: 5
+
   # Show model reasoning/thinking before each response.
   # When enabled, a dim box shows the model's thought process above the response.
   # Toggle at runtime with /reasoning show or /reasoning hide.
